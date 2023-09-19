@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"strconv"
 
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -69,7 +70,6 @@ func main() {
 	if err != nil {
 		panic(err.Error())
 	}
-	fmt.Printf("config.Host %s\n", config.Host)
 
 	// 클라이언트 셋업
 	// 네임스페이스 "" 인 경우 -A 처럼 동작함
@@ -88,7 +88,7 @@ func main() {
 		fmt.Printf("서비스 어카운트에 시크릿이 없습니다. \n")
 		os.Exit(1)
 	}
-	for _, secretName := range secretNameList {
+	for i, secretName := range secretNameList {
 		secret, err := clientset.CoreV1().Secrets(saNamespace).Get(context.TODO(), secretName.Name, metav1.GetOptions{})
 		if err != nil {
 			fmt.Printf("시크릿을 찾을 수 없습니다. : %s\n", secretName.Name)
@@ -114,7 +114,11 @@ func main() {
 		newConfig.BearerToken = string(secret.Data["token"])
 
 		currentDir, _ := os.Getwd()
-		destinationDir := currentDir + "/" + saName + ".kubeconfig"
+		cnt := ""
+		if i > 0 {
+			cnt = strconv.Itoa(i + 1)
+		}
+		destinationDir := currentDir + "/" + saName + cnt + ".kubeconfig"
 
 		makeKubeconfigFile(newConfig, destinationDir)
 	}
@@ -157,4 +161,7 @@ func makeKubeconfigFile(config *rest.Config, destinationDir string) {
 		fmt.Printf("Error writing kubeconfig: %v\n", err)
 		os.Exit(1)
 	}
+
+	fmt.Printf("kubernetes API Server: %s\n", config.Host)
+	fmt.Printf("ServiceAccount Name: %s\n", myUserName)
 }
