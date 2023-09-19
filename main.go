@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -18,29 +19,29 @@ import (
 
 func main() {
 	// 서비스 어카운트 이름을 입력받기 위한 플래그 정의
-	var saName string
-	var shortServiceAccountName string
+	var saName string // 필수값
 	var saNamespace string
-	var shortNamespace string
+	var outputType string
+
+	flag.StringVar(&saName, "sa", "", "Service Account Name")
 	flag.StringVar(&saName, "service-account", "", "Service Account Name")
-	flag.StringVar(&shortServiceAccountName, "sa", "", "Service Account Name")
+	flag.StringVar(&saNamespace, "n", "default", "Service Account Namespace")
 	flag.StringVar(&saNamespace, "namespace", "default", "Service Account Namespace")
-	flag.StringVar(&shortNamespace, "n", "default", "Service Account Namespace")
+	flag.StringVar(&outputType, "o", "yaml", "Output Type")
+	flag.StringVar(&outputType, "output", "yaml", "Output Type")
+
 	flag.Parse()
 
-	if saName == "" && shortServiceAccountName == "" {
+	if saName == "" {
 		fmt.Println("사용법: kubectl get-sa-kubeconfig --service-account=<ServiceAccountName>")
 		fmt.Println("       kubectl get-sa-kubeconfig --sa=<ServiceAccountName>")
 
 		os.Exit(1)
 	}
 
-	if saName == "" && shortServiceAccountName != "" {
-		saName = shortServiceAccountName
-	}
-
-	if saNamespace == "default" && shortNamespace != "default" {
-		saNamespace = shortNamespace
+	if outputType != "yaml" && outputType != "json" {
+		fmt.Println("output 타입은 yaml 또는 json 이어야 합니다.")
+		os.Exit(1)
 	}
 
 	isKubeconfigEnv := false
@@ -54,7 +55,7 @@ func main() {
 	if !isKubeconfigEnv {
 		currentUser, err := user.Current()
 		if err != nil {
-			fmt.Printf("Error getting current user: %v\n", err)
+			fmt.Printf("현재 유저를 가져오는데 실패: %v\n", err)
 			os.Exit(1)
 		}
 
@@ -120,11 +121,12 @@ func main() {
 		}
 		destinationDir := currentDir + "/" + saName + cnt + ".kubeconfig"
 
-		makeKubeconfigFile(newConfig, destinationDir)
+		makeKubeconfigFile(newConfig, destinationDir, outputType)
+
 	}
 }
 
-func makeKubeconfigFile(config *rest.Config, destinationDir string) {
+func makeKubeconfigFile(config *rest.Config, destinationDir string, outputType string) {
 
 	myClusterName := "my-cluster"
 	myContextName := "my-context"
@@ -155,11 +157,29 @@ func makeKubeconfigFile(config *rest.Config, destinationDir string) {
 		CurrentContext: myContextName,
 	}
 
-	// kubeconfig 파일에 저장
-	err := clientcmd.WriteToFile(*newConfig, destinationDir)
-	if err != nil {
-		fmt.Printf("Error writing kubeconfig: %v\n", err)
-		os.Exit(1)
+	if outputType == "json" {
+		// kubeconfig 데이터 json 변환
+		jsonData, err := json.MarshalIndent(newConfig, "", "  ")
+		if err != nil {
+			fmt.Printf("json 변환 에러: %v\n", err)
+			os.Exit(1)
+		}
+
+		// json 데이터 파일 저장
+		err = os.WriteFile(destinationDir, jsonData, 0644)
+		if err != nil {
+			fmt.Printf("json 파일 쓰기 에러: %v\n", err)
+			os.Exit(1)
+		}
+	}
+
+	if outputType == "yaml" {
+		// yaml 데이터 파일 저장
+		err := clientcmd.WriteToFile(*newConfig, destinationDir)
+		if err != nil {
+			fmt.Printf("yam 파일 쓰기 에러: %v\n", err)
+			os.Exit(1)
+		}
 	}
 
 	fmt.Printf("kubernetes API Server: %s\n", config.Host)
