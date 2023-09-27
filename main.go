@@ -25,8 +25,8 @@ func main() {
 
 	flag.StringVar(&saName, "sa", "", "Service Account Name")
 	flag.StringVar(&saName, "service-account", "", "Service Account Name")
-	flag.StringVar(&saNamespace, "n", "default", "Service Account Namespace")
-	flag.StringVar(&saNamespace, "namespace", "default", "Service Account Namespace")
+	flag.StringVar(&saNamespace, "n", "", "Service Account Namespace")
+	flag.StringVar(&saNamespace, "namespace", "", "Service Account Namespace")
 	flag.StringVar(&outputType, "o", "yaml", "Output Type")
 	flag.StringVar(&outputType, "output", "yaml", "Output Type")
 
@@ -47,11 +47,14 @@ func main() {
 	isKubeconfigEnv := false
 	// 환경 변수가 설정되어 있으면 kubeconfig 파일을 사용하지 않음
 	if os.Getenv("KUBECONFIG") != "" {
-		fmt.Println("KUBECONFIG 환경 변수가 설정되어 있습니다. kubeconfig 파일을 사용하지 않습니다.")
+		fmt.Println("KUBECONFIG 환경 변수가 설정되어 있습니다. 기본 kubeconfig 파일을 사용하지 않습니다.")
 		isKubeconfigEnv = true
+
 	}
 
 	var kubeconfigPath *string
+
+	// 기본 kubeconfig
 	if !isKubeconfigEnv {
 		currentUser, err := user.Current()
 		if err != nil {
@@ -63,7 +66,14 @@ func main() {
 		homeDir := currentUser.HomeDir
 		realPath := homeDir + "/.kube/config"
 		kubeconfigPath = &realPath
-		fmt.Printf("Kubeconfig Path: %s\n", *kubeconfigPath)
+		//fmt.Printf("Kubeconfig Path: %s\n", *kubeconfigPath)
+	}
+
+	// 사용자 정의 kubeconfig
+	if isKubeconfigEnv {
+		//fmt.Printf("Kubeconfig Path: %s\n", os.Getenv("KUBECONFIG"))
+		envPath := os.Getenv("KUBECONFIG")
+		kubeconfigPath = &envPath
 	}
 
 	// kubeconfig 파일을 사용하여 Kubernetes 클러스터에 연결하는 설정 생성
@@ -74,19 +84,36 @@ func main() {
 	}
 
 	// 클라이언트 셋업
-	// 네임스페이스 "" 인 경우 -A 처럼 동작함
+	// 네임스페이스 "" 인 경우 default 처럼 동작함
 	clientset, err := kubernetes.NewForConfig(config)
 	if err != nil {
 		fmt.Printf("클라이언트 셋업 에러: %v\n", err)
 		panic(err.Error())
 	}
 
+	// kubeconfig 파일에 설정된 namespace를 clientcmdapi를 통해서 사용
+	// kubeconfig 파일에 설정된 namespace가 없는 경우 "" 빈 문자열이 리턴됨
+	userConfig, err := clientcmd.LoadFromFile(*kubeconfigPath)
+	if err != nil {
+		fmt.Printf("kubeconfig 파일 로드 에러: %v\n", err)
+		panic(err.Error())
+	}
+	userConfigNamespace := userConfig.Contexts[userConfig.CurrentContext].Namespace
+	if saNamespace == "" && userConfigNamespace != "" {
+		saNamespace = userConfigNamespace
+	}
+
+	if saNamespace == "" {
+		saNamespace = "default"
+	}
+
 	sa, err := clientset.CoreV1().ServiceAccounts(saNamespace).Get(context.TODO(), saName, metav1.GetOptions{})
 	if err != nil {
-		fmt.Printf("서비스 어카운트를 찾을 수 없습니다.: %s\n", saName)
+		fmt.Printf("네임스페이스 %s 에서 서비스 어카운트를 찾을 수 없습니다.: %s\n", saNamespace, saName)
 		os.Exit(1)
 	}
-	fmt.Printf("서비스 어카운트를 찾았습니다.: %s\n", saName)
+
+	//fmt.Printf("서비스 어카운트를 찾았습니다.: %s\n", saName)
 	secretNameList := sa.Secrets
 
 	if len(secretNameList) == 0 {
