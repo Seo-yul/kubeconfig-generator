@@ -33,8 +33,8 @@ func main() {
 	flag.Parse()
 
 	if saName == "" {
-		fmt.Println("사용법: kubectl get-sa-kubeconfig --service-account=<ServiceAccountName>")
-		fmt.Println("       kubectl get-sa-kubeconfig --sa=<ServiceAccountName>")
+		fmt.Println("사용법: kubectl make kubeconfig --service-account=<ServiceAccountName>")
+		fmt.Println("       kubectl make kubeconfig --sa=<ServiceAccountName>")
 
 		os.Exit(1)
 	}
@@ -69,6 +69,7 @@ func main() {
 	// kubeconfig 파일을 사용하여 Kubernetes 클러스터에 연결하는 설정 생성
 	config, err := clientcmd.BuildConfigFromFlags("", *kubeconfigPath)
 	if err != nil {
+		fmt.Printf("kubeconfig 파일을 사용하여 Kubernetes 클러스터에 연결하는 설정 생성 에러: %v\n", err)
 		panic(err.Error())
 	}
 
@@ -76,6 +77,7 @@ func main() {
 	// 네임스페이스 "" 인 경우 -A 처럼 동작함
 	clientset, err := kubernetes.NewForConfig(config)
 	if err != nil {
+		fmt.Printf("클라이언트 셋업 에러: %v\n", err)
 		panic(err.Error())
 	}
 
@@ -84,7 +86,9 @@ func main() {
 		fmt.Printf("서비스 어카운트를 찾을 수 없습니다.: %s\n", saName)
 		os.Exit(1)
 	}
+	fmt.Printf("서비스 어카운트를 찾았습니다.: %s\n", saName)
 	secretNameList := sa.Secrets
+
 	if len(secretNameList) == 0 {
 		fmt.Printf("서비스 어카운트에 시크릿이 없습니다. \n")
 		os.Exit(1)
