@@ -5,8 +5,11 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/rand"
 	"strconv"
+	"time"
 
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -80,7 +83,7 @@ func main() {
 	config, err := clientcmd.BuildConfigFromFlags("", *kubeconfigPath)
 	if err != nil {
 		fmt.Printf("kubeconfig 파일을 사용하여 Kubernetes 클러스터에 연결하는 설정 생성 에러: %v\n", err)
-		panic(err.Error())
+		os.Exit(1)
 	}
 
 	// 클라이언트 셋업
@@ -88,7 +91,7 @@ func main() {
 	clientset, err := kubernetes.NewForConfig(config)
 	if err != nil {
 		fmt.Printf("클라이언트 셋업 에러: %v\n", err)
-		panic(err.Error())
+		os.Exit(1)
 	}
 
 	// kubeconfig 파일에 설정된 namespace를 clientcmdapi를 통해서 사용
@@ -96,7 +99,7 @@ func main() {
 	userConfig, err := clientcmd.LoadFromFile(*kubeconfigPath)
 	if err != nil {
 		fmt.Printf("kubeconfig 파일 로드 에러: %v\n", err)
-		panic(err.Error())
+		os.Exit(1)
 	}
 	userConfigNamespace := userConfig.Contexts[userConfig.CurrentContext].Namespace
 	if saNamespace == "" && userConfigNamespace != "" {
@@ -117,9 +120,20 @@ func main() {
 	secretNameList := sa.Secrets
 
 	if len(secretNameList) == 0 {
-		fmt.Printf("서비스 어카운트에 시크릿이 없습니다. \n")
-		os.Exit(1)
+		fmt.Printf("서비스 어카운트에 시크릿이 없습니다. 시크릿을 생성하시겠습니까?(Y / other) \n")
+		var answer string
+		fmt.Scanln(&answer)
+
+		if answer != "y" && answer != "Y" {
+			os.Exit(1)
+		}
+
+		// 시크릿 생성
+		serviceAccountSecret(saName, saNamespace, clientset)
+		sa, _ = clientset.CoreV1().ServiceAccounts(saNamespace).Get(context.TODO(), saName, metav1.GetOptions{})
+		secretNameList = sa.Secrets
 	}
+
 	for i, secretName := range secretNameList {
 		secret, err := clientset.CoreV1().Secrets(saNamespace).Get(context.TODO(), secretName.Name, metav1.GetOptions{})
 		if err != nil {
@@ -148,13 +162,52 @@ func main() {
 		currentDir, _ := os.Getwd()
 		cnt := ""
 		if i > 0 {
-			cnt = strconv.Itoa(i + 1)
+			cnt = "-" + strconv.Itoa(i+1)
 		}
-		destinationDir := currentDir + "/" + saName + cnt + ".kubeconfig"
-
+		destinationDir := currentDir + "/" + saName + cnt
 		makeKubeconfigFile(newConfig, destinationDir, outputType)
-
+		fmt.Printf("시크릿 명: %s\n", secretName.Name)
 	}
+}
+
+func serviceAccountSecret(saName, saNamesapce string, clientset *kubernetes.Clientset) {
+
+	// 랜덤 문자열 생성
+	randString := generateRandomString(5)
+
+	// 시크릿 생성
+	secret := &v1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      saName + "-secret-" + randString,
+			Namespace: saNamesapce,
+			Annotations: map[string]string{
+				"kubernetes.io/service-account.name": saName,
+			},
+		},
+		Type: "kubernetes.io/service-account-token",
+	}
+
+	_, err := clientset.CoreV1().Secrets(saNamesapce).Create(context.Background(), secret, metav1.CreateOptions{})
+	if err != nil {
+		fmt.Printf("시크릿 생성 에러: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Println("시크릿 생성.")
+
+	// 서비스 어카운트에 시크릿 연결
+	serviceAccount := &v1.ServiceAccount{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      saName,
+			Namespace: saNamesapce,
+		},
+		Secrets: []v1.ObjectReference{
+			{
+				Name: secret.Name,
+			},
+		},
+	}
+
+	_, err = clientset.CoreV1().ServiceAccounts(saNamesapce).Update(context.Background(), serviceAccount, metav1.UpdateOptions{})
 }
 
 func makeKubeconfigFile(config *rest.Config, destinationDir string, outputType string) {
@@ -208,11 +261,24 @@ func makeKubeconfigFile(config *rest.Config, destinationDir string, outputType s
 		// yaml 데이터 파일 저장
 		err := clientcmd.WriteToFile(*newConfig, destinationDir)
 		if err != nil {
-			fmt.Printf("yam 파일 쓰기 에러: %v\n", err)
+			fmt.Printf("yaml 파일 쓰기 에러: %v\n", err)
 			os.Exit(1)
 		}
 	}
 
-	fmt.Printf("kubernetes API Server: %s\n", config.Host)
-	fmt.Printf("ServiceAccount Name: %s\n", myUserName)
+	//fmt.Printf("kubernetes API Server: %s\n", config.Host)
+	fmt.Printf("서비스 어카운트 명: %s\n", myUserName)
+}
+
+func generateRandomString(length int) string {
+	rand.Seed(time.Now().UnixNano())
+
+	const charset = "abcdefghijklmnopqrstuvwxyz" // 사용할 문자셋
+	result := make([]byte, length)
+
+	for i := 0; i < length; i++ {
+		result[i] = charset[rand.Intn(len(charset))]
+	}
+
+	return string(result)
 }

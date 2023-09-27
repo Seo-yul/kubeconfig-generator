@@ -16,8 +16,6 @@ go build -o kubectl-make-kubeconfig
 cp kubectl-make-kubeconfig /usr/local/bin
 
 kubectl make kubeconfig --service-account <service-account-name> [--namespace <namespace>]
-
-# output: <service-account-name-[index]>.kubeconfig
 ```
 
 # Help
@@ -37,4 +35,12 @@ kubectl make kubeconfig --help
     	Service Account Name
   -service-account string
     	Service Account Name
+```
+
+# Output
+```zsh
+Config File Name: SERVICE_ACCOUNT_NAME[-count]
+
+If you create Secret
+Secret Name: SERVICE_ACCOUNT_NAME-secret-RANDOM_STRING
 ```
